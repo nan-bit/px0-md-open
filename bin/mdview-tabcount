@@ -1,0 +1,33 @@
+#!/bin/bash
+# mdview-tabcount <port> -- how many browser tabs are open on 127.0.0.1:<port>?
+#
+# Prints a single number. Never launches the browser: if it is not running,
+# that is 0 tabs, which is the answer we want anyway.
+#
+# Tested against Google Chrome. The same AppleScript vocabulary (windows ->
+# tabs -> URL) is used by Chromium-family browsers (Brave, Edge, Vivaldi,
+# Chromium) and by Safari, so setting MDVIEW_BROWSER to one of those should
+# work; it is not exercised by the test suite.
+set -uo pipefail
+
+port="${1:?usage: mdview-tabcount <port>}"
+
+CONF="${MDVIEW_CONFIG:-$HOME/.config/mdview/config}"
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+app="${MDVIEW_BROWSER:-Google Chrome}"
+
+/usr/bin/osascript <<OSA 2>/dev/null || echo 0
+tell application "System Events"
+  if not (exists process "$app") then return 0
+end tell
+tell application "$app"
+  set n to 0
+  repeat with w in windows
+    repeat with t in tabs of w
+      if URL of t contains "127.0.0.1:$port" then set n to n + 1
+    end repeat
+  end repeat
+  return n
+end tell
+OSA
