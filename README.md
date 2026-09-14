@@ -25,7 +25,7 @@ Nothing is written into your repositories. State lives in
 Requires macOS and [px0](https://px0.ai) on your `PATH`.
 
 ```sh
-git clone <this-repo> && cd px0-md-open
+git clone https://github.com/nan-bit/px0-md-open.git && cd px0-md-open
 ./install.sh
 ```
 
