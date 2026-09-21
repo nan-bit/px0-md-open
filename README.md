@@ -1,20 +1,24 @@
 # px0-md-open
 
-Open a Markdown file from Finder, read it in [px0](https://px0.ai), and have the
-server shut itself down when you close the tab.
+Open a Markdown file — or a whole folder — from Finder, read it in
+[px0](https://px0.ai), and have the server clean itself up once you are done
+with it.
 
 px0 is a lovely read-only Markdown viewer, but it is a *server*: you point it at
 a directory, it serves a UI, and it keeps running until you stop it. That is a
 poor fit for "I just want to read this one file." This wraps it so opening a
-`.md` feels like opening a document.
+`.md` feels like opening a document, and opening a folder feels like opening a
+workspace you can browse from the tab.
 
 ```
-right-click notes.md -> Open With -> px0 Markdown
+right-click notes.md -> Open With -> px0 Markdown      (or drag a folder on it)
    |
-   +-- workspace root = git top-level (else the file's directory)
-   +-- a px0 already serving that root?  reuse it : start one on a free port
-   +-- hand the URL to your browser
-   +-- watch; when the last tab on that port closes, stop px0
+   +-- workspace root = the folder you named, if you named one
+   |                    else the git top-level, else the file's directory
+   +-- a px0 already serving that root -- or containing it?  reuse it
+   |                                                      :  start one, free port
+   +-- hand the URL to your browser  (+ ?path=<file> on px0 0.1.7+)
+   +-- watch; stop px0 once no tab has been on that port for a while
 ```
 
 Nothing is written into your repositories. State lives in
@@ -29,11 +33,12 @@ git clone https://github.com/nan-bit/px0-md-open.git && cd px0-md-open
 ./install.sh
 ```
 
-Then right-click any `.md` → **Open With** → **px0 Markdown**. There is also a
-CLI:
+Then right-click any `.md` → **Open With** → **px0 Markdown**. To browse a whole
+tree, drag the folder onto the app instead. There is also a CLI:
 
 ```sh
-mdview path/to/notes.md
+mdview path/to/notes.md    # root = git top-level, else the file's directory
+mdview path/to/folder      # root = that folder, exactly
 mdview --stop-all          # stop every server this tool started
 ```
 
@@ -56,20 +61,43 @@ Optional, `~/.config/mdview/config`:
 
 ```sh
 MDVIEW_BROWSER="Google Chrome"   # Brave Browser, Safari, Arc, Vivaldi, ...
-MDVIEW_IDLE=10                   # seconds after the last tab closes
+MDVIEW_IDLE=1800                 # seconds after the last tab closes
 MDVIEW_GRACE=30                  # seconds to wait for the first tab
 MDVIEW_POLL=3                    # seconds between tab checks
 ```
 
 ## What to expect
 
-**You land on the workspace tree, not the file.** px0 has no deep-link: it
-rejects a file argument (`px0 notes.md` → `not a directory`) and its UI never
-reads the URL, so `/?path=…` and `/#notes.md` all just render the root view.
-Use px0's file finder to jump to the file. This is the deliberate tradeoff —
-the alternative was patching px0's frontend, which means maintaining a fork and
-rebuilding on every px0 release. Using px0 as shipped means upstream keeps
-maintaining it.
+**You land on the file, if px0 is new enough.** px0 0.1.7 reads `?path=` on
+load: it opens that file, reveals it in the sidebar, then strips the parameter
+back out of the URL. So `mdview notes.md` hands the browser
+`http://127.0.0.1:PORT/?path=notes.md` and you arrive on the file, inside the
+wider workspace. Older px0 ignores the parameter and shows the root — which is
+what this tool did for its whole life before 0.1.7, so nothing breaks, you just
+pick the file out of the tree yourself.
+
+There is deliberately no fork of px0's frontend here. Everything below is done
+with px0 as shipped, which is why upstream gets to keep maintaining it.
+
+**A folder is taken at its word.** `mdview ~/repo/docs` roots px0 at `docs/`,
+even though `~/repo` is a git top-level — you asked for that directory, so that
+is the tree you get, and the sidebar is not buried under the rest of the repo.
+Only a *file* has no such stated intent, so a file still climbs to the git
+top-level. From there, clicking into sub-directories is px0's own doing; it
+expands them lazily over `/api/tree?dir=…`.
+
+**An open workspace swallows what falls inside it.** If a live server's root
+already contains the root you are asking for, `mdview` reuses it instead of
+starting a second px0 underneath. Open `~/notes`, then double-click
+`~/notes/proj/a.md`, and you land back in the `~/notes` tab rather than getting
+a new server rooted at `proj/`. The deepest containing root wins.
+
+**The server outlives the tab by half an hour.** `MDVIEW_IDLE` defaults to 1800
+seconds: close the tab, come back within thirty minutes, and the workspace is
+still there on the same port. Set it to `10` for the old one-shot behaviour, or
+run `mdview --stop-all` when you want the processes gone now. The first tab
+still has to appear within `MDVIEW_GRACE` (30s) or the server gives up — that
+guards against a browser that never opened, not against you walking away.
 
 **No live reload.** px0 has no file watcher and no websocket. Editing a file and
 hitting ⌘R shows the new content (it is read from disk per request), but a
@@ -78,6 +106,13 @@ hitting ⌘R shows the new content (it is read from disk per request), but a
 **Language servers are off** (`-no-lsp`). This is a read-only viewer, and it
 stops tools like clangd from writing a `.cache/` directory into your project
 when a workspace happens to contain code.
+
+**So is the editing agent** (`-no-agent`), and telemetry (`-no-telemetry`),
+where px0 supports them. Since 0.1.7 px0 can hand a file to a coding harness
+and edit it; that is a fine thing for px0 to do and the wrong thing to get from
+double-clicking a file you meant to read. Both flags are passed only if
+`px0 --help` advertises them, because an unknown flag is fatal and this tool
+should keep working against whatever px0 you have.
 
 ## Why tabs, not sockets
 
@@ -107,7 +142,7 @@ don't, or at least test it against a real browser rather than a script.
 | `bin/mdview-tabcount` | ask the browser how many tabs are on a port |
 | `app/mdview.applescript` | the Finder droplet source |
 | `install.sh` / `uninstall.sh` | install, register, remove |
-| `test/smoke.sh` | 13 tests, no browser required |
+| `test/smoke.sh` | 21 tests, no browser required |
 
 The droplet has to be AppleScript: Finder delivers files to an app through
 Apple Events, not `argv`, so a shell script in an `.app` bundle would never

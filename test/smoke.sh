@@ -15,7 +15,7 @@ PASS=0; FAIL=0
 
 cleanup() {
   MDVIEW_STATE="$TMP/state" "$MDVIEW" --stop-all >/dev/null 2>&1 || true
-  pkill -f "px0 -no-open -no-lsp -port 0 $TMP" 2>/dev/null || true
+  pkill -f "px0 .*-port 0 $TMP" 2>/dev/null || true
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -25,7 +25,7 @@ nope() { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m %s\n' "$*"; }
 is()   { [ "$2" = "$3" ] && ok "$1" || nope "$1 (want '$3', got '$2')"; }
 
 # ---- fixtures ---------------------------------------------------------------
-mkdir -p "$TMP/bin" "$TMP/state" "$TMP/ws/docs" "$TMP/other"
+mkdir -p "$TMP/bin" "$TMP/state" "$TMP/ws/docs" "$TMP/other/sub"
 printf '#!/bin/bash\necho "STUB-OPEN $*" >> '"$TMP"'/opened\n' > "$TMP/bin/open"
 chmod +x "$TMP/bin/open"
 
@@ -36,6 +36,7 @@ chmod +x "$TMP/bin/tabcount"
 printf '# A\n' > "$TMP/ws/notes.md"
 printf '# B\n' > "$TMP/ws/docs/b.md"
 printf '# C\n' > "$TMP/other/c.md"
+printf '# D\n' > "$TMP/other/sub/d.md"
 ( cd "$TMP/ws" && git init -q )
 
 export PATH="$TMP/bin:$PATH"
@@ -94,7 +95,65 @@ is "dead rows are pruned" "$(grep -c '^/nonexistent' "$REG" || true)" "0"
 "$MDVIEW" --stop-all >/dev/null 2>&1
 is "--stop-all empties the registry" "$(wc -l < "$REG" | tr -d ' ')" "0"
 
-# ---- 8. error handling ------------------------------------------------------
+# ---- 8. opening a directory -------------------------------------------------
+# A directory is taken at its word: $TMP/ws is a git repo, but asking for
+# docs/ must not climb to it -- nor drop to docs/'s parent, which is what
+# dirname would have done.
+"$MDVIEW" "$TMP/ws/docs" >/dev/null 2>&1
+is "a directory is its own root" \
+   "$(awk -F'\t' '{print $1}' "$REG" | head -1)" "$(cd "$TMP/ws/docs" && pwd -P)"
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# Finder hands folders over with a trailing slash.
+"$MDVIEW" "$TMP/ws/docs/" >/dev/null 2>&1
+is "a trailing slash is stripped" \
+   "$(awk -F'\t' '{print $1}' "$REG" | head -1)" "$(cd "$TMP/ws/docs" && pwd -P)"
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# ---- 8b. the browser is pointed at the file, not just the workspace --------
+# px0 0.1.7+ reads ?path= and opens that file; older px0 ignores it.
+"$MDVIEW" --stop-all >/dev/null 2>&1
+: > "$TMP/opened"
+"$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
+case "$(cat "$TMP/opened")" in
+  *"?path=docs/b.md"*) ok "a file is handed over as ?path=" ;;
+  *) nope "a file is handed over as ?path= (got: $(cat "$TMP/opened"))" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+: > "$TMP/opened"
+"$MDVIEW" "$TMP/ws/docs" >/dev/null 2>&1
+case "$(cat "$TMP/opened")" in
+  *"?path="*) nope "a directory gets no ?path= (got: $(cat "$TMP/opened"))" ;;
+  *) ok "a directory gets no ?path=" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# A name needing escaping must survive the trip.
+mkdir -p "$TMP/ws/my docs"
+printf '# S\n' > "$TMP/ws/my docs/a b.md"
+: > "$TMP/opened"
+"$MDVIEW" "$TMP/ws/my docs/a b.md" >/dev/null 2>&1
+case "$(cat "$TMP/opened")" in
+  *"?path=my%20docs/a%20b.md"*) ok "spaces in the path are percent-encoded" ;;
+  *) nope "spaces in the path are percent-encoded (got: $(cat "$TMP/opened"))" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# ---- 9. a file inside an open workspace reuses it ---------------------------
+# $TMP/other is not a repo, so d.md alone would root at other/sub. With
+# other/ already served, it should land there instead of starting a second px0.
+"$MDVIEW" "$TMP/other" >/dev/null 2>&1
+pd="$(awk -F'\t' '{print $2}' "$REG" | head -1)"
+"$MDVIEW" "$TMP/other/sub/d.md" >/dev/null 2>&1
+is "a file under an open directory reuses that server" \
+   "$(awk -F'\t' '{print $2}' "$REG" | head -1)" "$pd"
+is "no second server below it" "$(wc -l < "$REG" | tr -d ' ')" "1"
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# ---- 10. error handling -----------------------------------------------------
+"$MDVIEW" "$TMP/no-such-dir" >/dev/null 2>&1
+is "missing directory exits non-zero" "$?" "1"
 "$MDVIEW" "$TMP/nope.md" >/dev/null 2>&1
 is "missing file exits non-zero" "$?" "1"
 HOME="$TMP/fakehome" PX0_BIN=/nonexistent/px0 PATH="$TMP/bin:/usr/bin:/bin" \
