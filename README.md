@@ -14,7 +14,7 @@ workspace you can browse from the tab.
 right-click notes.md -> Open With -> px0 Markdown      (or drag a folder on it)
    |
    +-- workspace root = the folder you named, if you named one
-   |                    else the git top-level, else the file's directory
+   |                    else the folder the file sits in
    +-- a px0 already serving that root -- or containing it?  reuse it
    |                                                      :  start one, free port
    +-- hand the URL to your browser  (+ ?path=<file> on px0 0.1.7+)
@@ -37,7 +37,7 @@ Then right-click any `.md` → **Open With** → **px0 Markdown**. To browse a w
 tree, drag the folder onto the app instead. There is also a CLI:
 
 ```sh
-mdview path/to/notes.md    # root = git top-level, else the file's directory
+mdview path/to/notes.md    # root = the folder it sits in
 mdview path/to/folder      # root = that folder, exactly
 mdview --stop-all          # stop every server this tool started
 ```
@@ -61,6 +61,7 @@ Optional, `~/.config/mdview/config`:
 
 ```sh
 MDVIEW_BROWSER="Google Chrome"   # Brave Browser, Safari, Arc, Vivaldi, ...
+MDVIEW_FILE_ROOT=dir             # dir: a file's root is its folder; git: the repo
 MDVIEW_IDLE=1800                 # seconds after the last tab closes
 MDVIEW_GRACE=30                  # seconds to wait for the first tab
 MDVIEW_POLL=3                    # seconds between tab checks
@@ -79,12 +80,17 @@ pick the file out of the tree yourself.
 There is deliberately no fork of px0's frontend here. Everything below is done
 with px0 as shipped, which is why upstream gets to keep maintaining it.
 
-**A folder is taken at its word.** `mdview ~/repo/docs` roots px0 at `docs/`,
-even though `~/repo` is a git top-level — you asked for that directory, so that
-is the tree you get, and the sidebar is not buried under the rest of the repo.
-Only a *file* has no such stated intent, so a file still climbs to the git
-top-level. From there, clicking into sub-directories is px0's own doing; it
-expands them lazily over `/api/tree?dir=…`.
+**You get the folder, not the repo.** `mdview ~/repo/docs` roots px0 at
+`docs/`, even though `~/repo` is a git top-level — you asked for that directory,
+so that is the tree you get, and the sidebar is not buried under the rest of the
+repo. A file is read the same way: `mdview ~/repo/docs/a.md` roots at `docs/`,
+because the folder a file sits in is the closest thing to a stated intent it
+has. From there, clicking into sub-directories is px0's own doing; it expands
+them lazily over `/api/tree?dir=…`.
+
+Set `MDVIEW_FILE_ROOT=git` if you would rather a file climb to the git
+top-level and give you the whole repository in the sidebar. A directory is
+unaffected either way — a directory is always taken at its word.
 
 **An open workspace swallows what falls inside it.** If a live server's root
 already contains the root you are asking for, `mdview` reuses it instead of
@@ -142,7 +148,7 @@ don't, or at least test it against a real browser rather than a script.
 | `bin/mdview-tabcount` | ask the browser how many tabs are on a port |
 | `app/mdview.applescript` | the Finder droplet source |
 | `install.sh` / `uninstall.sh` | install, register, remove |
-| `test/smoke.sh` | 21 tests, no browser required |
+| `test/smoke.sh` | 23 tests, no browser required |
 
 The droplet has to be AppleScript: Finder delivers files to an app through
 Apple Events, not `argv`, so a shell script in an `.app` bundle would never
