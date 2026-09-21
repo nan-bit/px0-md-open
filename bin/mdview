@@ -2,7 +2,8 @@
 # mdview - open a Markdown file or a directory in px0, reusing one server per
 # workspace root, and shut that server down once the last browser tab closes.
 #
-# Usage:  mdview <file.md>      root = git top-level, else the file's directory
+# Usage:  mdview <file.md>      root = the file's directory
+#                               (MDVIEW_FILE_ROOT=git climbs to the repo root)
 #         mdview <directory>    root = that directory, exactly
 #         mdview --stop-all
 #
@@ -19,6 +20,7 @@ CONF="${MDVIEW_CONFIG:-$HOME/.config/mdview/config}"
 STATE="${MDVIEW_STATE:-$HOME/.local/state/mdview}"
 BROWSER="${MDVIEW_BROWSER:-Google Chrome}"
 TABCOUNT="${MDVIEW_TABCOUNT:-$SELF_DIR/mdview-tabcount}"
+FILE_ROOT="${MDVIEW_FILE_ROOT:-dir}"  # dir | git: where a file's workspace starts
 
 GRACE="${MDVIEW_GRACE:-30}"   # seconds to wait for the first tab to appear
 IDLE="${MDVIEW_IDLE:-1800}"   # seconds with no matching tab before shutdown
@@ -97,7 +99,7 @@ prune() {
 
 case "${1:-}" in
   -h|--help)
-    sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   --stop-all)
     prune
@@ -128,14 +130,17 @@ done
 
 # Workspace root. A directory is taken at its word -- if you point at
 # ~/repo/docs you get docs/, not the whole repo, even though git would climb.
-# A file has no such intent to honour, so it climbs to the git top-level.
+# A file is read the same way: you get the folder it sits in, so the sidebar is
+# the size of what you opened rather than the size of the repo it happens to
+# live in. MDVIEW_FILE_ROOT=git restores the climb to the git top-level.
 if [ -d "$target" ]; then
   target="$(cd "$target" && pwd -P)"
   root="$target"
 else
   target="$(cd "$(dirname "$target")" && pwd -P)/$(basename "$target")"
   filedir="$(dirname "$target")"
-  root="$(cd "$filedir" && git rev-parse --show-toplevel 2>/dev/null)"
+  root=""
+  [ "$FILE_ROOT" = git ] && root="$(cd "$filedir" && git rev-parse --show-toplevel 2>/dev/null)"
   [ -n "$root" ] || root="$filedir"
 fi
 

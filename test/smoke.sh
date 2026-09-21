@@ -63,12 +63,12 @@ grep -q "STUB-OPEN" "$TMP/opened" 2>/dev/null && ok "hands the URL to the browse
 # ---- 2. reuse within one workspace -----------------------------------------
 "$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
 p2="$(awk -F'\t' '{print $2}' "$REG" | head -1)"
-is "second file in same repo reuses the server" "$p2" "$p1"
+is "a file below the open root reuses the server" "$p2" "$p1"
 is "registry still has one row" "$(wc -l < "$REG" | tr -d ' ')" "1"
 
-# ---- 3. git root, not the file's directory ---------------------------------
+# ---- 3. the file's directory is the root ------------------------------------
 root="$(awk -F'\t' '{print $1}' "$REG" | head -1)"
-is "workspace root is the git top-level" "$root" "$(cd "$TMP/ws" && pwd -P)"
+is "workspace root is the file's directory" "$root" "$(cd "$TMP/ws" && pwd -P)"
 
 # ---- 4. a separate workspace gets its own server ---------------------------
 "$MDVIEW" "$TMP/other/c.md" >/dev/null 2>&1
@@ -95,6 +95,20 @@ is "dead rows are pruned" "$(grep -c '^/nonexistent' "$REG" || true)" "0"
 "$MDVIEW" --stop-all >/dev/null 2>&1
 is "--stop-all empties the registry" "$(wc -l < "$REG" | tr -d ' ')" "0"
 
+# ---- 7b. a file does not climb to the git top-level ------------------------
+# $TMP/ws is a repo and docs/ is inside it, but opening docs/b.md with nothing
+# else running must root at docs/, not drag the whole repo into the sidebar.
+"$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
+is "a file roots at its own directory, not the repo" \
+   "$(awk -F'\t' '{print $1}' "$REG" | head -1)" "$(cd "$TMP/ws/docs" && pwd -P)"
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# ...unless you ask for the old behaviour.
+MDVIEW_FILE_ROOT=git "$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
+is "MDVIEW_FILE_ROOT=git climbs to the git top-level" \
+   "$(awk -F'\t' '{print $1}' "$REG" | head -1)" "$(cd "$TMP/ws" && pwd -P)"
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
 # ---- 8. opening a directory -------------------------------------------------
 # A directory is taken at its word: $TMP/ws is a git repo, but asking for
 # docs/ must not climb to it -- nor drop to docs/'s parent, which is what
@@ -111,8 +125,11 @@ is "a trailing slash is stripped" \
 "$MDVIEW" --stop-all >/dev/null 2>&1
 
 # ---- 8b. the browser is pointed at the file, not just the workspace --------
-# px0 0.1.7+ reads ?path= and opens that file; older px0 ignores it.
+# px0 0.1.7+ reads ?path= and opens that file; older px0 ignores it. ws/ is
+# opened first so the file lands inside a wider root and ?path= has to carry a
+# sub-directory, which is where the encoding is worth checking.
 "$MDVIEW" --stop-all >/dev/null 2>&1
+"$MDVIEW" "$TMP/ws" >/dev/null 2>&1
 : > "$TMP/opened"
 "$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
 case "$(cat "$TMP/opened")" in
@@ -132,6 +149,7 @@ esac
 # A name needing escaping must survive the trip.
 mkdir -p "$TMP/ws/my docs"
 printf '# S\n' > "$TMP/ws/my docs/a b.md"
+"$MDVIEW" "$TMP/ws" >/dev/null 2>&1
 : > "$TMP/opened"
 "$MDVIEW" "$TMP/ws/my docs/a b.md" >/dev/null 2>&1
 case "$(cat "$TMP/opened")" in
