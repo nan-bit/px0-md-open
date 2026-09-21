@@ -56,11 +56,18 @@ rm -rf "$APP"
 osacompile -o "$APP" "$work/mdview.applescript"
 say "compiled $APP"
 
-# ---- 4. declare it a Markdown viewer ---------------------------------------
+# ---- 4. declare it a Markdown (and folder) viewer --------------------------
 PL="$APP/Contents/Info.plist"
 PB=/usr/libexec/PlistBuddy
+# Keep each PlistBuddy run to 14 commands or fewer. Past that it does not
+# report an error, it aborts (signal 6) and writes nothing -- so the entries
+# below are split across invocations rather than chained into one.
+#
 # LSHandlerRank Alternate => shows up under "Open With" without stealing the
-# default association from whatever the user already uses.
+# default association from whatever the user already uses. The folder entry is
+# rank None: Finder has no "Open With" menu on folders anyway, and None keeps
+# us out of the running for anything that does dispatch on public.folder. It is
+# there so a folder can be dropped on the app, not to claim folders.
 $PB -c "Delete :CFBundleDocumentTypes" "$PL" 2>/dev/null || true
 $PB -c "Add :CFBundleDocumentTypes array" \
     -c "Add :CFBundleDocumentTypes:0 dict" \
@@ -74,9 +81,16 @@ $PB -c "Add :CFBundleDocumentTypes array" \
     -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:1 string markdown" \
     -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:2 string mdown" \
     -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:3 string mkd" \
+    "$PL" >/dev/null
+$PB -c "Add :CFBundleDocumentTypes:1 dict" \
+    -c "Add :CFBundleDocumentTypes:1:CFBundleTypeName string 'Folder'" \
+    -c "Add :CFBundleDocumentTypes:1:CFBundleTypeRole string Viewer" \
+    -c "Add :CFBundleDocumentTypes:1:LSHandlerRank string None" \
+    -c "Add :CFBundleDocumentTypes:1:LSItemContentTypes array" \
+    -c "Add :CFBundleDocumentTypes:1:LSItemContentTypes:0 string public.folder" \
     -c "Add :CFBundleIdentifier string ai.px0.mdview" \
     "$PL" >/dev/null
-say "declared .md / .markdown / .mdown / .mkd"
+say "declared .md / .markdown / .mdown / .mkd, and folders"
 
 # Editing Info.plist invalidates osacompile's ad-hoc signature; re-sign.
 codesign --force --deep -s - "$APP" >/dev/null 2>&1 || say "note: could not re-sign (harmless)"
@@ -98,12 +112,14 @@ cat <<DONE
 Done.
 
   Right-click any .md file -> Open With -> "$APP_NAME"
+  Drag a folder onto the app to browse that whole tree in px0.
   Or from a terminal:       mdview path/to/file.md
+                            mdview path/to/folder
 
 The first time the shutdown watcher runs, macOS will ask for permission to
 control your browser. Allow it, or the server will not stop on tab close.
 
 Config (optional): ~/.config/mdview/config
   MDVIEW_BROWSER="Google Chrome"   # Brave Browser, Safari, Arc, ...
-  MDVIEW_IDLE=10                   # seconds after last tab closes
+  MDVIEW_IDLE=1800                 # seconds after last tab closes
 DONE
