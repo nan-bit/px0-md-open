@@ -38,8 +38,19 @@ tree, drag the folder onto the app instead. There is also a CLI:
 
 ```sh
 mdview path/to/notes.md    # root = the folder it sits in
+mdview path/to/notes.md:42 # the same, opened at line 42
 mdview path/to/folder      # root = that folder, exactly
+mdview --list              # what is running, and whether anyone is looking
 mdview --stop-all          # stop every server this tool started
+```
+
+`--list` asks the browser, live, how many tabs each server has, and for one
+with none, how long that has been true and how long it has left:
+
+```
+PORT   UP      TABS                           ROOT
+54321  2h05m   1 open                         ~/notes
+54388  14m     none for 3m, stops in 27m      ~/Projects/px0-md-open
 ```
 
 `install.sh` does not take over your `.md` association — it registers as an
@@ -76,6 +87,10 @@ back out of the URL. So `mdview notes.md` hands the browser
 wider workspace. Older px0 ignores the parameter and shows the root — which is
 what this tool did for its whole life before 0.1.7, so nothing breaks, you just
 pick the file out of the tree yourself.
+
+`mdview notes.md:42` adds `&line=42`, which px0 honours in the rendered view as
+well as the source. The `:42` is only split off when `notes.md:42` is not itself
+a file, so an oddly named file still opens as itself.
 
 There is deliberately no fork of px0's frontend here. Everything below is done
 with px0 as shipped, which is why upstream gets to keep maintaining it.
