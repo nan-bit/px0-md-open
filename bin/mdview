@@ -4,7 +4,9 @@
 #
 # Usage:  mdview <file.md>      root = the file's directory
 #                               (MDVIEW_FILE_ROOT=git climbs to the repo root)
+#         mdview <file.md>:<N>  the same, opened at line N
 #         mdview <directory>    root = that directory, exactly
+#         mdview --list         the servers this tool is running, and their tabs
 #         mdview --stop-all
 #
 # See README.md for design notes.
@@ -87,19 +89,38 @@ prune() {
     done < "$REG"
     mv "$tmp" "$REG"
   fi
-  # Sweep logs whose px0 is no longer running.
+  # Sweep logs and idle markers whose px0 is no longer running.
   local f lpid
-  for f in "$STATE"/px0-*.log; do
+  for f in "$STATE"/px0-*.log "$STATE"/idle-*; do
     [ -e "$f" ] || continue
-    lpid="${f##*/px0-}"; lpid="${lpid%.log}"
+    lpid="${f##*/}"; lpid="${lpid#px0-}"; lpid="${lpid#idle-}"; lpid="${lpid%.log}"
     case "$lpid" in (*[!0-9]*) rm -f "$f"; continue;; esac
     kill -0 "$lpid" 2>/dev/null || rm -f "$f"
   done
 }
 
+# Seconds as "45s", "12m" or "2h05m".
+dur() {
+  local s="$1"
+  [ "$s" -lt 0 ] && s=0
+  if [ "$s" -ge 3600 ]; then printf '%dh%02dm' $((s / 3600)) $((s % 3600 / 60))
+  elif [ "$s" -ge 60 ]; then printf '%dm' $((s / 60))
+  else printf '%ds' "$s"
+  fi
+}
+
+# ps's elapsed time, [[dd-]hh:]mm:ss, in seconds. macOS ps has no etimes.
+etime_s() {
+  local e="$1" d=0 h=0 m=0 s=0 a b c
+  case "$e" in *-*) d="${e%%-*}"; e="${e#*-}" ;; esac
+  IFS=: read -r a b c <<< "$e"
+  if [ -n "$c" ]; then h="$a"; m="$b"; s="$c"; else m="$a"; s="$b"; fi
+  echo $(( 10#$d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
 case "${1:-}" in
   -h|--help)
-    sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   --stop-all)
     prune
@@ -109,6 +130,30 @@ case "${1:-}" in
     done < "$REG"
     : > "$REG"
     echo "mdview: stopped $n server(s)"
+    exit 0 ;;
+  --list)
+    prune
+    [ -s "$REG" ] || { echo "mdview: no servers running"; exit 0; }
+    now="$(date +%s)" tilde='~'
+    printf '%-6s %-7s %-30s %s\n' PORT UP TABS ROOT
+    while IFS=$'\t' read -r r p pid; do
+      [ -n "${pid:-}" ] || continue
+      up="$(etime_s "$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')")"
+      # Asked live rather than read from the supervisor, so this is the
+      # browser's answer now, not as of the last poll.
+      n="$("$TABCOUNT" "$p" 2>/dev/null)"
+      case "$n" in (''|*[!0-9]*) n=0 ;; esac
+      if [ "$n" -gt 0 ]; then
+        st="$n open"
+      elif read -r since idle 2>/dev/null < "$STATE/idle-$pid"; then
+        st="none for $(dur $((now - since))), stops in $(dur $((since + idle - now)))"
+      elif [ "$up" -lt "$GRACE" ]; then
+        st="none yet"
+      else
+        st="none"   # started before idle markers existed
+      fi
+      printf '%-6s %-7s %-30s %s\n' "$p" "$(dur "$up")" "$st" "${r/#"$HOME"/$tilde}"
+    done < "$REG"
     exit 0 ;;
   '') die "usage: mdview <file.md|directory>  (--help for more)" ;;
 esac
@@ -126,6 +171,16 @@ while :; do
     *) break ;;
   esac
 done
+# notes.md:42 opens at line 42. Split only when the whole name does not exist
+# and what comes before the colon is a file, so a file that really is called
+# "x:12" still opens as itself.
+line=""
+if [ ! -e "$target" ]; then
+  case "${target##*:}" in
+    ''|*[!0-9]*) ;;
+    *) [ -f "${target%:*}" ] && { line="${target##*:}"; target="${target%:*}"; } ;;
+  esac
+fi
 [ -e "$target" ] || die "no such file or directory: $target"
 
 # Workspace root. A directory is taken at its word -- if you point at
@@ -225,6 +280,8 @@ if [ -z "$port" ]; then
   (
     exec >>"$STATE/supervisor.log" 2>&1
     tabs() { "$TABCOUNT" "$port" 2>/dev/null || echo 0; }
+    # While no tab is open, idle-<pid> holds "<since> <idle>" for --list.
+    idlef="$STATE/idle-$pid"
 
     connected=0
     for _ in $(seq 1 $((GRACE * 2))); do
@@ -240,6 +297,7 @@ if [ -z "$port" ]; then
       zero=0
       while kill -0 "$pid" 2>/dev/null; do
         if [ "$(tabs)" -eq 0 ]; then
+          [ "$zero" -eq 0 ] && echo "$(date +%s) $IDLE" > "$idlef"
           zero=$((zero + POLL))
           if [ "$zero" -ge "$IDLE" ]; then
             echo "$(date '+%F %T') idle ${IDLE}s, stopping px0 :$port ($root)"
@@ -248,6 +306,7 @@ if [ -z "$port" ]; then
           fi
         else
           zero=0
+          rm -f "$idlef"
         fi
         sleep "$POLL"
       done
@@ -258,7 +317,7 @@ if [ -z "$port" ]; then
     awk -F'\t' -v p="$port" '$2 != p' "$REG" > "$tmp2" 2>/dev/null
     mv "$tmp2" "$REG"
     lock_release
-    rm -f "$log"
+    rm -f "$log" "$idlef"
   ) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null
 fi
@@ -268,12 +327,15 @@ lock_release; trap - EXIT
 # px0 0.1.7 reads ?path= on load: it opens that file and reveals it in the
 # sidebar, then strips the parameter from the URL. Older px0 ignores it and
 # shows the workspace root, which is the behaviour this tool used to have.
+# ?line= rides along the same way, and lands in the rendered view as well as
+# the source.
 url="http://127.0.0.1:$port/"
 if [ "$target" = "$root" ]; then
   echo "mdview: $root -> $url"
 else
   rel="${target#"$root"/}"
   url="$url?path=$(urlenc "$rel")"
+  [ -n "$line" ] && url="$url&line=$line"
   echo "mdview: $rel -> $url"
 fi
 open -a "$BROWSER" "$url"

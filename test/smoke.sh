@@ -179,6 +179,50 @@ is "a file under an open directory reuses that server" \
 is "no second server below it" "$(wc -l < "$REG" | tr -d ' ')" "1"
 "$MDVIEW" --stop-all >/dev/null 2>&1
 
+# ---- 9b. file:N opens at a line --------------------------------------------
+: > "$TMP/opened"
+"$MDVIEW" "$TMP/other/sub/d.md:7" >/dev/null 2>&1
+case "$(cat "$TMP/opened")" in
+  *"?path=d.md&line=7"*) ok "file:N is handed over as &line=N" ;;
+  *) nope "file:N is handed over as &line=N (got: $(cat "$TMP/opened"))" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+# A file whose name really ends in :N is opened as itself.
+printf '# E\n' > "$TMP/other/e.md:3"
+: > "$TMP/opened"
+"$MDVIEW" "$TMP/other/e.md:3" >/dev/null 2>&1
+case "$(cat "$TMP/opened")" in
+  *"?path=e.md%3A3"*) ok "a name ending in :N that exists is not split" ;;
+  *) nope "a name ending in :N that exists is not split (got: $(cat "$TMP/opened"))" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+
+"$MDVIEW" "$TMP/other/nope.md:7" >/dev/null 2>&1
+is "file:N for a missing file exits non-zero" "$?" "1"
+
+# ---- 9c. --list -------------------------------------------------------------
+is "--list with nothing running says so" \
+   "$("$MDVIEW" --list 2>&1)" "mdview: no servers running"
+
+echo 1 > "$TMP/tabs"
+MDVIEW_IDLE=600 "$MDVIEW" "$TMP/other" >/dev/null 2>&1
+pl="$(awk -F'\t' '{print $2}' "$REG" | head -1)"
+case "$("$MDVIEW" --list 2>&1)" in
+  *"$pl"*"1 open"*"other"*) ok "--list shows the port, the tabs and the root" ;;
+  *) nope "--list shows the port, the tabs and the root (got: $("$MDVIEW" --list 2>&1))" ;;
+esac
+
+# Close the tab: the supervisor notes when, and --list counts down from it.
+echo 0 > "$TMP/tabs"
+sleep 3
+case "$("$MDVIEW" --list 2>&1)" in
+  *"none for "*", stops in "*) ok "--list shows how long a server has had no tab" ;;
+  *) nope "--list shows how long a server has had no tab (got: $("$MDVIEW" --list 2>&1))" ;;
+esac
+"$MDVIEW" --stop-all >/dev/null 2>&1
+echo 1 > "$TMP/tabs"
+
 # ---- 10. error handling -----------------------------------------------------
 "$MDVIEW" "$TMP/no-such-dir" >/dev/null 2>&1
 is "missing directory exits non-zero" "$?" "1"
