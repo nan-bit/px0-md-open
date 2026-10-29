@@ -187,11 +187,14 @@ if [ -z "$port" ]; then
   # The next two only exist in newer px0, and an unknown flag is fatal, so ask
   # --help rather than assume. -no-agent matters: since 0.1.7 px0 offers to
   # edit files through a coding harness, which is not what "double-click to
-  # read this" should hand you.
+  # read this" should hand you. -no-update matters too: px0 otherwise checks
+  # for, and installs, a new release on every start, which puts a network
+  # round trip in front of opening a file. Update on purpose with `px0 -update`.
   flags=(-no-open -no-lsp -port 0)
   px0_help="$("$PX0" --help 2>&1)"
   case "$px0_help" in *-no-agent*) flags+=(-no-agent) ;; esac
   case "$px0_help" in *-no-telemetry*) flags+=(-no-telemetry) ;; esac
+  case "$px0_help" in *-no-update*) flags+=(-no-update) ;; esac
   "$PX0" "${flags[@]}" "$root" > "$boot" 2>&1 &
   pid=$!
   log="$STATE/px0-$pid.log"

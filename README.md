@@ -116,9 +116,21 @@ when a workspace happens to contain code.
 **So is the editing agent** (`-no-agent`), and telemetry (`-no-telemetry`),
 where px0 supports them. Since 0.1.7 px0 can hand a file to a coding harness
 and edit it; that is a fine thing for px0 to do and the wrong thing to get from
-double-clicking a file you meant to read. Both flags are passed only if
-`px0 --help` advertises them, because an unknown flag is fatal and this tool
-should keep working against whatever px0 you have.
+double-clicking a file you meant to read.
+
+**So is auto-update** (`-no-update`). px0 0.1.16 and later check for a new
+release on every start and install it if there is one, which puts a network
+round trip, and sometimes a download, between double-clicking a file and
+reading it. Viewing a document should not change the binary that renders it.
+Update when you mean to:
+
+```sh
+px0 -update
+```
+
+All three flags are passed only if `px0 --help` advertises them, because an
+unknown flag is fatal and this tool should keep working against whatever px0
+you have.
 
 ## Why tabs, not sockets
 
