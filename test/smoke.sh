@@ -50,6 +50,7 @@ if ! command -v px0 >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/px0" ]; then
   echo "smoke.sh: px0 not installed; skipping." >&2
   exit 77
 fi
+PX0="$(command -v px0 || echo "$HOME/.local/bin/px0")"
 
 echo "smoke tests"
 
@@ -59,6 +60,15 @@ p1="$(awk -F'\t' '{print $2}' "$REG" | head -1)"
 [ -n "$p1" ] && ok "first open starts a server (port $p1)" || nope "first open: no port in registry"
 case "$out" in *"notes.md -> http://127.0.0.1:$p1"*) ok "prints the URL";; *) nope "prints the URL (got: $out)";; esac
 grep -q "STUB-OPEN" "$TMP/opened" 2>/dev/null && ok "hands the URL to the browser" || nope "browser not invoked"
+
+# The optional flags are passed when px0 advertises them, and only then.
+pid1="$(awk -F'\t' '{print $3}' "$REG" | head -1)"
+args1="$(ps -o args= -p "$pid1" 2>/dev/null)"
+help="$("$PX0" --help 2>&1)"
+for f in -no-agent -no-telemetry -no-update; do
+  case "$help" in *"$f"*) ;; *) continue ;; esac
+  case "$args1" in *" $f"*) ok "px0 started with $f";; *) nope "px0 started with $f (got: $args1)";; esac
+done
 
 # ---- 2. reuse within one workspace -----------------------------------------
 "$MDVIEW" "$TMP/ws/docs/b.md" >/dev/null 2>&1
